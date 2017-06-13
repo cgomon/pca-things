@@ -1,0 +1,903 @@
+#--------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------
+# These are the R commands for Part 2 of the lectures notes for 46-926.
+# Chad Schafer, Last Updated 1/8/17
+
+
+#--------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------
+# The Fama-French Example
+#--------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------
+
+
+# Get my function for reading in the Fama-French data
+
+source("http://www.stat.cmu.edu/~cschafer/MSCF/getFamaFrench.txt")
+
+
+# Load quantmod
+
+library(quantmod)
+
+
+# Get PNC data
+
+PNC = getSymbols("PNC", from="2016-1-1", to="2016-6-30", auto.assign=F)
+
+
+# Get the Fama-French info from the same period
+
+ffhold = getFamaFrench(from = "2016-1-1", to="2016-6-30")
+
+
+# Find the excess returns
+
+ffhold$PNCexret = 100*dailyReturn(PNC) - ffhold$RF
+
+
+# Fit the three factor model
+
+ff3modPNC = lm(PNCexret ~ Mkt.RF + SMB + HML, data=ffhold)
+
+
+# Diagnostic Plots
+
+postscript(file="PNCdiagnostic.eps",width=8,height=8,horiz=F)
+par(mfrow=c(2,2))
+plot(as.numeric(ff3modPNC$fit),as.numeric(ff3modPNC$resid),
+   pch=16,xlab="Fitted Values", 
+   ylab="Residuals",cex.axis=1.3,cex.lab=1.3)
+
+qqnorm(as.numeric(ff3modPNC$resid),cex.axis=1.3,cex.lab=1.3,pch=16,main="")
+qqline(as.numeric(ff3modPNC$resid))
+
+plot(ff3modPNC$resid, xlab="Time",ylab="Residuals",cex.axis=1.3,cex.lab=1.3,
+   pch=16,main="")
+dev.off()
+
+
+# Cook's Distance
+
+cookd = as.numeric(cooks.distance(ff3modPNC))
+sort(pf(cookd,4,121),decreasing=TRUE)[1:5]
+
+
+# Robust Regression
+
+library(MASS)
+
+holdrlm = rlm(PNCexret ~ Mkt.RF + SMB + HML, data=ffhold)
+
+holdrlm = rlm(PNCexret ~ Mkt.RF + SMB + HML, k=0.5, data=ffhold)
+
+
+# Make a prediction
+
+predict.lm(ff3modPNC, newdata=data.frame(Mkt.RF=0.01, SMB=0.1, HML=0.3), 
+    interval="prediction")
+
+
+
+#--------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------
+# The Forward Rate Function Example
+#--------------------------------------------------------------------------------
+#--------------------------------------------------------------------------------
+
+forratedat = read.table("http://www.stat.cmu.edu/~cschafer/MSCF/forratedat.txt",
+   header=T)
+
+attach(forratedat)
+
+# Raw plot of the data
+
+postscript(file="stepwise1.eps",width=6,height=5,horiz=F)
+plot(maturity,emp,pch=16,cex=1.0,cex.lab=1.3,xlab="maturity",
+   ylab="empirical forward rate",cex.axis=1.3)
+dev.off()
+
+
+# Scale the maturity so that it has mean 0 and SD 1
+
+maturity = scale(maturity)
+
+
+# Consider the full model
+
+fullmod = lm(emp ~ maturity + I(maturity^2) + I(maturity^3) + 
+    I(maturity^4) + I(maturity^5) + I(maturity^6) + I(maturity^7) + 
+    I(maturity^8) + I(maturity^9))
+
+
+# Using bestglm with AIC
+
+library(bestglm)
+
+allpreds = cbind(maturity, maturity^2, maturity^3, maturity^4, maturity^5,
+   maturity^6, maturity^7, maturity^8, maturity^9)
+
+Xyframe = data.frame(cbind(allpreds,emp))
+
+bestmod = bestglm(Xyframe, IC="AIC")
+
+
+# Stepwise procedure
+
+finalmod = step(fullmod, direction="both")
+
+
+# Find the leverages
+
+levs = hatvalues(fullmod)
+
+
+# Calculate PRESS
+
+PRESS = sum((fullmod$resid/(1-levs))^2)
+
+
+# Using bestglm with LOOCV
+
+bestmod2 = bestglm(Xyframe, IC="LOOCV")
+#-------------------------------------------------------------------------
+#-------------------------------------------------------------------------
+
+yielddata = read.table("http://www.stat.cmu.edu/~cschafer/MSCF/YieldCurves2012.txt", header=T)
+
+yieldcurves = yielddata[,2:12]
+
+years = c(1/12,3/12,1/2,1,2,3,5,7,10,20,30)
+
+
+# Find the VIFs
+
+library(car)
+
+
+simy = rnorm(nrow(yieldcurves))
+holdglm = glm(simy ~ 
+  yieldcurves[,1] + 
+  yieldcurves[,2] + 
+  yieldcurves[,3] + 
+  yieldcurves[,4] + 
+  yieldcurves[,5] + 
+  yieldcurves[,6] + 
+  yieldcurves[,7] + 
+  yieldcurves[,8] + 
+  yieldcurves[,9] + 
+  yieldcurves[,10] + 
+  yieldcurves[,11]
+ )
+
+print(vif(holdglm))
+
+# Create a plot comparing some yield curves
+
+touse = c(10,100,200)
+coluse = c(1,2,4)
+ltyuse = c(1,2,4)
+
+postscript(file="exampleyields.eps",horiz=F,width=8,height=7)
+
+plot(years, yieldcurves[touse[1],], lwd=2, type="b", xlab="Years", ylab="Rate",
+   cex.axis=1.3,cex.lab=1.3,ylim=c(0,max(yieldcurves[touse,])),pch=16)
+
+for(i in 2:length(touse))
+{
+   lines(years, yieldcurves[touse[i],], lwd=2, col=coluse[i], lty=ltyuse[i], pch=16, type="b")
+}
+legend(30,0,legend=yielddata$Date[touse],lty=ltyuse,col=coluse,lwd=2,xjust=1,yjust=0,cex=1.5,pch=16)
+
+dev.off()
+
+# Run the pca
+
+pcaout = princomp(yieldcurves)
+
+
+# Where is the center
+
+postscript(file="thecenter.eps",width=8,height=7,horiz=F)
+plot(years,pcaout$center,lwd=2,type="b",xlab="Years",ylab="Rate",col=2,
+cex.axis=1.3,cex.lab=1.3,pch=16,ylim=c(0,max(yieldcurves[touse,])))
+dev.off()
+
+
+# Construct the plots that show the effect of varying the components
+
+postscript(file="varyone.eps",width=8,height=7,horiz=F)
+plot(years,pcaout$center,lwd=2,type="b",xlab="Years",ylab="Rate",col=2,
+cex.axis=1.3,cex.lab=1.3,pch=16)
+
+offlist = seq(-1,1,length=6)
+for(off in offlist)
+{
+   if(off < 0)
+   {
+      lines(years,(pcaout$center+off*pcaout$loadings[,1]),lwd=1,lty=2,col=4)
+   } else
+   {
+      lines(years,(pcaout$center+off*pcaout$loadings[,1]),lwd=1,lty=4,col=2)
+   }
+}
+dev.off()
+
+postscript(file="varytwo.eps",width=8,height=7,horiz=F)
+plot(years,pcaout$center,lwd=2,type="b",xlab="Years",ylab="Rate",col=2,
+cex.axis=1.3,cex.lab=1.3,pch=16)
+
+for(off in offlist)
+{
+   if(off < 0)
+   {
+      lines(years,(pcaout$center+off*pcaout$loadings[,2]),lwd=1,lty=2,col=4)
+   } else
+   {
+      lines(years,(pcaout$center+off*pcaout$loadings[,2]),lwd=1,lty=4,col=2)
+   }
+}
+dev.off()
+
+
+postscript(file="varythree.eps",width=8,height=7,horiz=F)
+plot(years,pcaout$center,lwd=2,type="b",xlab="Years",ylab="Rate",col=2,
+cex.axis=1.3,cex.lab=1.3,pch=16)
+
+for(off in offlist)
+{
+   if(off < 0)
+   {
+      lines(years,(pcaout$center+off*pcaout$loadings[,3]),lwd=1,lty=2,col=4)
+   } else
+   {
+      lines(years,(pcaout$center+off*pcaout$loadings[,3]),lwd=1,lty=4,col=2)
+   }
+}
+dev.off()
+
+
+
+
+
+#-----------------------------------------------------------------------------
+#-----------------------------------------------------------------------------
+# LASSO Example, replicating HDG with a portfolio of NYSE stocks
+
+library(glmnet)
+
+retmat = read.table("http://www.stat.cmu.edu/~cschafer/MSCF/replicatingHDG.dat")
+retmat = as.matrix(retmat)
+
+
+# Get the data for the stock under consideration
+# Note that the final column holds the response
+
+glmnetout = glmnet(retmat[,-1962], retmat[,1962])
+
+
+# Use cross-validation to choose optimal lambda. Note that this procedure is random.
+
+set.seed(0)
+
+cvglmout = cv.glmnet(retmat[,-1962], retmat[,1962])
+
+postscript(file="mincv.eps",width=8,height=6,horiz=F)
+plot(cvglmout,lwd=2)
+abline(v=log(cvglmout$lambda.min),lty=3,lwd=2)
+abline(v=log(cvglmout$lambda.1se),lty=3,lwd=2)
+
+holdpos = which(cvglmout$glmnet.fit$lambda == cvglmout$lambda.1se)
+lines(c(log(cvglmout$lambda.min),log(cvglmout$lambda.1se)),
+      c(rep(cvglmout$cvm[holdpos],2)),lwd=3,col=4,lty=1)
+dev.off()
+
+#-----------------------------------------------------------------------------
+# Read in the data file
+
+alldat = read.table("http://www.stat.cmu.edu/~cschafer/MSCF/OptionsData.txt",
+   header=T)
+
+# Make plot of predictors, motivate log transform
+
+postscript(file="optionshists.eps",horiz=F,width=6,height=5)
+layout(matrix(1:4,nrow=2))
+par(mar=c(4,4,2,2))
+hist(alldat$timetoexpiry, xlab="Time to Expiry (days)", ylab="",
+  cex.axis=1.3,cex.lab=1.3, prob=T, main="")
+hist(alldat$curprice, xlab="Current Equity Price", ylab="density",
+  cex.axis=1.3,cex.lab=1.3, prob=T, main="")
+hist(alldat$histvol, xlab="Historical Volatility", ylab="density",
+  cex.axis=1.3,cex.lab=1.3, prob=T, main="")
+hist(alldat$strike, xlab="Strike Price", ylab="density",
+  cex.axis=1.3,cex.lab=1.3, prob=T, main="")
+dev.off()
+
+postscript(file="optionshistslog.eps",horiz=F,width=6,height=5)
+layout(matrix(1:4,nrow=2))
+par(mar=c(4,4,2,2))
+hist(log(alldat$timetoexpiry), xlab="Log Time to Expiry (days)", ylab="",
+  cex.axis=1.3,cex.lab=1.3, prob=T, main="")
+hist(log(alldat$curprice), xlab="Log Current Equity Price", ylab="density",
+  cex.axis=1.3,cex.lab=1.3, prob=T, main="")
+hist(log(alldat$histvol), xlab="Log Historical Volatility", ylab="density",
+  cex.axis=1.3,cex.lab=1.3, prob=T, main="")
+hist(log(alldat$strike), xlab="Log Strike Price", ylab="density",
+  cex.axis=1.3,cex.lab=1.3, prob=T, main="")
+dev.off()
+
+
+#-----------------------------------------------------------------------------
+# R Commands for Part 8, Regression Trees
+
+
+library(tree)
+library(mgcv)
+
+source("http://www.stat.cmu.edu/~cschafer/MSCF/cv.tree.full.txt")
+
+
+# Read in the data file
+
+alldat = read.table("http://www.stat.cmu.edu/~cschafer/MSCF/OptionsData.txt",
+     header=T)
+
+alldat$transresp = (alldat$last)^(1/4)
+
+
+#-----------------------------------------------------------------------------
+# Simple Tree, mostly for plotting purposes
+
+treesimp = tree(transresp ~ strike + curprice, data=alldat)
+
+treesimppruned = prune.tree(treesimp,k=5)
+
+postscript(file="treesimp.eps",horiz=F,height=7,width=6)
+plot(treesimppruned)
+text(treesimppruned,cex=0.75)
+dev.off()
+
+postscript(file="partitionsimp.eps",horiz=F,height=7,width=7)
+partition.tree(treesimppruned,cex=0.75)
+dev.off()
+
+
+# Make the progression of trees
+
+treesimp1 = tree(transresp ~ strike + curprice, data=alldat,
+   mindev=0.1,minsize=2)
+treesimp2 = tree(transresp ~ strike + curprice, data=alldat,
+   mindev=0.04,minsize=2)
+treesimp3 = tree(transresp ~ strike + curprice, data=alldat,
+   mindev=0.03,minsize=2)
+treesimp4 = tree(transresp ~ strike + curprice, data=alldat,
+   mindev=0,minsize=1)
+
+
+postscript(file="growingtree.eps",horiz=F,height=6,width=6)
+layout(t(matrix(c(1,2,3,4),nrow=2)))
+par(mar=c(2,2,2,2))
+plot(treesimp1)
+text(treesimp1)
+plot(treesimp2)
+text(treesimp2)
+plot(treesimp3)
+text(treesimp3)
+plot(treesimp4)
+dev.off()
+
+
+
+
+#-----------------------------------------------------------------------------
+# For the simple R code example
+
+fulltree = tree(transresp ~ strike + curprice, data=alldat, 
+   mindev=0, minsize=2)
+
+prunedtree = prune.tree(fulltree, k=5)
+
+prunedtree2 = prune.tree(fulltree, best=10)
+
+postscript(file="prunedtree.eps",horiz=F,height=6,width=6)
+plot(prunedtree)
+text(prunedtree, cex=0.75)
+dev.off()
+
+
+cvout = cv.tree.full(fulltree)
+
+postscript(file="cvplot.eps",horiz=F,height=5,width=6)
+plot(cvout)
+dev.off()
+
+optalpha = cvout$k[which.min(cvout$dev)]
+print(cvout$size[which.min(cvout$dev)])
+
+opttree = prune.tree(fulltree, k=optalpha)
+
+postscript(file="opttree.eps",horiz=F,height=6,width=6)
+plot(opttree)
+text(opttree, cex=0.75)
+dev.off()
+
+
+
+#-----------------------------------------------------------------------------
+# Model 7: Regression Tree
+
+
+set.seed(0)
+model7fulltree = tree(transresp ~ timetoexpiry + strike + curprice + histvol, 
+     data=alldat, mindev=0, minsize=2)
+
+cvmodel7 = cv.tree.full(model7fulltree)
+
+model7optalpha = cvmodel7$k[which.min(cvmodel7$dev)]
+model7opttree = prune.tree(model7fulltree, k=model7optalpha)
+
+print(summary(model7opttree))
+
+postscript(file="model7respvspreds.eps", horiz=F,width=7,height=6)
+plot(predict(model7opttree),alldat$transresp,
+   pch=16,cex=0.7,xlab="Predicted Value",ylab="Actual Response",
+   cex.axis=1.3,cex.lab=1.3)
+abline(0,1,lwd=2,col=4)
+dev.off()
+
+postscript(file="model7resvsfit.eps",horiz=F,width=7,height=6)
+plot(predict(model7opttree), residuals(model7opttree),
+   xlab="Fitted Values", ylab="Residuals",cex.axis=1.3,cex.lab=1.3,pch=16,cex=0.7)
+dev.off()
+
+postscript(file="model7cvout.eps",horiz=F,width=7,height=6)
+plot(cvmodel7)
+dev.off()
+
+postscript(file="model7opttree.eps",horiz=F,height=6,width=6)
+plot(model7opttree)
+text(model7opttree, cex=0.5)
+dev.off()
+
+
+
+#-----------------------------------------------------------------------------
+# Model 8: Fit a simpler model
+
+model8opttree = prune.tree(model7fulltree, best=175)
+
+print(summary(model8opttree))
+
+postscript(file="model8respvspreds.eps", horiz=F,width=7,height=6)
+plot(predict(model8opttree),alldat$transresp,
+   pch=16,cex=0.7,xlab="Predicted Value",ylab="Actual Response",
+   cex.axis=1.3,cex.lab=1.3)
+abline(0,1,lwd=2,col=4)
+dev.off()
+
+postscript(file="model8resvsfit.eps",horiz=F,width=7,height=6)
+plot(predict(model8opttree), residuals(model8opttree),
+   xlab="Fitted Values", ylab="Residuals",cex.axis=1.3,cex.lab=1.3,pch=16,cex=0.7)
+dev.off()
+
+postscript(file="model8opttree.eps",horiz=F,height=6,width=6)
+plot(model8opttree)
+text(model8opttree, cex=0.5)
+dev.off()
+
+
+
+
+#----------------------------------------------------------------------
+#----------------------------------------------------------------------
+# THE CLASSIFICATION TREE EXAMPLE
+
+
+
+# Read in the data
+
+ratedata = read.table(
+   "http://www.stat.cmu.edu/~cschafer/MSCF/RateData.txt",header=T)
+
+
+# The full tree
+
+fulltree = tree(factor(Rating) ~ factor(ext.source)+factor(EDF.source)+
+   Profit+Capital+Excess.Net.Capital+Liab.Capital+Leverage+Liquidity.1+
+   Liquidity+factor(Descr), data=ratedata, mindev=0, minsize=2)
+
+
+postscript(file="ratefulltree.eps",width=7,height=7,horiz=F)
+plot(fulltree)
+text(fulltree)
+dev.off()
+
+# Run cross-validation procedure
+
+set.seed(0)
+cvout = cv.tree.full(fulltree)
+
+postscript(file="ratecv.eps",width=7,height=7,horiz=F)
+plot(cvout)
+dev.off()
+
+# Choose the optimal model
+
+alphaopt = cvout$k[which.min(cvout$dev)]
+
+opttree = prune.tree(fulltree, k=alphaopt)
+
+postscript(file="rateopttree.eps",width=7,height=7,horiz=F)
+plot(opttree)
+text(opttree)
+dev.off()
+
+
+
+#----------------------------------------------------------------------
+#----------------------------------------------------------------------
+# THE RANDOM FORESTS EXAMPLE
+
+# Read in the data file
+
+alldat = read.table(
+   "http://www.stat.cmu.edu/~cschafer/MSCF/OptionsData.txt",header=T)
+
+alldat$transresp = (alldat$last)^(1/4)
+
+
+# Fit Random Forest
+
+library(randomForest)
+
+set.seed(0)
+model9 = randomForest(transresp ~ timetoexpiry + strike + curprice + 
+     histvol, data=alldat, importance=TRUE)
+
+postscript(file="model9plot.eps",horiz=F,height=5,width=6)
+plot(model9)
+dev.off()
+
+residsmodel9 = alldat$transresp - predict(model9)
+
+postscript(file="model9resvsfit.eps",horiz=F,width=7,height=6)
+plot(predict(model9), residsmodel9, xlab="Fitted Values", 
+   ylab="Residuals", cex.axis=1.3, cex.lab=1.3, pch=16, cex=0.7)
+dev.off()
+
+postscript(file="model9respvspreds.eps", horiz=F,width=7,height=6)
+plot(predict(model9), alldat$transresp, pch=16, cex=0.7,
+   xlab="Predicted Value", ylab="Actual Response", cex.axis=1.3,
+   cex.lab=1.3)
+abline(0,1,lwd=2,col=4)
+dev.off()
+
+
+
+# Optimize for m
+
+xmat = alldat[,c(1,2,8,9)]
+
+print(tuneRF(xmat,alldat$transresp))
+
+model10 = randomForest(formula = transresp ~ timetoexpiry + 
+    strike + curprice + histvol, data = alldat, importance = TRUE,
+    mtry=4)
+
+residsmodel10 = alldat$transresp - predict(model10)
+
+postscript(file="model10resvsfit.eps",horiz=F,width=7,height=6)
+plot(predict(model10), residsmodel10, xlab="Fitted Values", 
+   ylab="Residuals",cex.axis=1.3,cex.lab=1.3,pch=16,cex=0.7)
+dev.off()
+
+postscript(file="model10respvspreds.eps", horiz=F,width=7,height=6)
+plot(predict(model10),alldat$transresp,pch=16,cex=0.7,
+   xlab="Predicted Value",ylab="Actual Response", cex.axis=1.3,
+   cex.lab=1.3)
+abline(0,1,lwd=2,col=4)
+dev.off()
+
+
+
+#----------------------------------------------------------------------
+#----------------------------------------------------------------------
+# BOOSTING REGRESSION TREE EXAMPLE
+
+
+# This is necessary to avoid the bug in the code
+
+alldatsub = alldat[,c(1,2,8,9,11)]
+
+library(gbm)
+
+set.seed(0)
+model11 = gbm(transresp ~ timetoexpiry +strike + curprice + histvol, 
+              data = alldatsub, bag.fraction=0.5, distribution="gaussian",
+              n.trees=200000, interaction.depth=3, shrinkage = 0.001,
+              cv.folds=3)
+
+# Find the best model via cross-validation.
+
+postscript(file="cvmodel11.eps",width=8,height=6,horiz=F)
+gbm.perf(model11, method="cv")
+dev.off()
+
+optnumtrees = 50000
+
+# Get the fitted values for this model
+
+model11fits = predict(model11,n.trees=optnumtrees)
+
+# Find RSS for this model
+
+sum((model11fits-alldat$transresp)^2)
+
+# Diagnostic Plots
+
+postscript(file="model11resvsfit.eps",horiz=F,width=7,height=6)
+plot(model11fits, alldat$transresp-model11fits, xlab="Fitted Values", 
+     ylab="Residuals", cex.axis=1.3, cex.lab=1.3, pch=16, cex=0.7)
+dev.off()
+
+postscript(file="model11respvspreds.eps", horiz=F,width=7,height=6)
+plot(model11fits, alldat$transresp, pch=16, cex=0.7,
+     xlab="Predicted Value", ylab="Actual Response", cex.axis=1.3,
+     cex.lab=1.3)
+abline(0,1,lwd=2,col=4)
+dev.off()
+
+# Read in the data
+
+bankdata = read.table(
+        "http://www.stat.cmu.edu/~cschafer/MSCF/OlmedaData.txt")
+
+# Name the variables
+
+names(bankdata) = c('assets_tot','assetMcash_tot','assets_loans',
+                 'reverse_loans','income_assets','income_equity',
+                 'income_loans','cost_sales','cf_loans','default')
+
+# Change the default variable into 0/1
+
+bankdata$default = as.numeric(bankdata$default == "Failed")
+
+# This function allows for direct reference to the named columns of
+# the data frame bankdata. So, instead of writing bankdata$assets_tot,
+# I can just write assets_tot
+
+attach(bankdata)
+
+# We need the package car for the Yeo-Johnson Transformation
+
+library(car)
+
+# Apply all of the transformations
+
+bankdata$reverse_loans_trans = log(reverse_loans)
+
+lambda = powerTransform(income_assets, family="yjPower")$roundlam
+bankdata$income_assets_trans = yjPower(income_assets, lambda)
+
+lambda = powerTransform(income_equity, family="yjPower")$roundlam
+bankdata$income_equity_trans = yjPower(income_equity, lambda)
+
+lambda = powerTransform(income_loans, family="yjPower")$roundlam
+bankdata$income_loans_trans = yjPower(income_loans, lambda)
+
+lambda = powerTransform(cf_loans, family="yjPower")$roundlam
+bankdata$cf_loans_trans = yjPower(cf_loans, lambda)
+
+
+# Fit the model
+
+bankglm = glm(default ~ assets_tot + assetMcash_tot
+ + assets_loans + reverse_loans_trans 
+ + income_assets_trans + income_equity_trans 
+ + income_loans_trans + cost_sales 
+ + cf_loans_trans, family=binomial, data=bankdata)
+
+finalmod = step(bankglm)
+
+
+# Plot of response versus fitted probabilities
+
+postscript(file="respvspreds.eps",width=8,height=6,horiz=F)
+plot(fitted.values(finalmod),jitter(default,0.2),pch=16,
+   xlab="Fitted Values",ylab="Observed Response (Jittered)",
+   cex.axis=1.3,cex.lab=1.3)
+dev.off()
+
+
+# Hosmer-Lemeshow Test
+
+library(ResourceSelection)
+print(hoslem.test(default, finalmod$fit))
+
+
+# Cooks Distance
+
+cd = cooks.distance(finalmod)
+postscript(file="cooksdist.eps",width=8,height=6,horiz=F)
+plot(cd,xlab="Observation", ylab="Cook's Distance",cex.axis=1.3,cex.lab=1.3,pch=16)
+dev.off()
+
+
+# The stars plot
+
+stars(bankdata[,c(1,3,11,12,14)], labels=1:66, col.lines=(bankdata$default+1))
+
+
+# Example of making a prediction
+
+predict(finalmod, type="response", se.fit=T)
+
+#-----------------------------------------------------------------------
+#-----------------------------------------------------------------------
+# These are the R commands for Support Vector Machines
+
+# Load the library and the data
+
+library(e1071)
+library(randomForest)
+library(tree)
+source("http://www.stat.cmu.edu/~cschafer/MSCF/cv.tree.full.txt")
+
+# Read in the data
+
+oneday = read.table(
+   "http://www.stat.cmu.edu/~cschafer/MSCF/cprod_data_20130103v.txt")
+
+# Create the indicator for the direction of change. This is what we 
+# are going to predict.
+
+oneday$change = as.numeric((oneday$V1 - oneday$V3) > 0)
+
+
+# Divide the data into training and test sets
+
+set.seed(0)
+
+trainrows = sample(1:nrow(oneday), replace=F, size=10000)
+
+trainset = oneday[trainrows,8:35]
+testset = oneday[-trainrows,8:35]
+
+
+# WARNING: This next command takes a while
+
+svmout = tune.svm(factor(change) ~ ., data=trainset, 
+    cost=c(5,10,25,50))
+
+
+# Make a plot of the results
+
+postscript(file="svmplot.eps",width=8,height=7,horiz=F)
+plot(svmout$best.model, trainset, V10~V9, cex.axis=1.3,cex.lab=1.3)
+dev.off()
+
+
+
+#-----------------------------------------------------------------------
+#-----------------------------------------------------------------------
+# Compare with other methods
+
+
+# Logistic Regression
+
+logregout = glm(factor(change) ~., data=trainset, family=binomial)
+logregout = step(logregout)
+
+
+# Regression Tree
+
+fulltree = tree(factor(change) ~ ., data=trainset, mindev=0, minsize=2)
+cvout = cv.tree.full(fulltree)
+alphaopt = cvout$k[which.min(cvout$dev)]
+classtreeout = prune.tree(fulltree, k=alphaopt)
+
+
+# Random Forest.
+
+rfout = randomForest(factor(change) ~ ., data=trainset)
+
+
+# Tables showing the results
+
+svmtab = table(testset$change, predict(svmout$best.model,testset))
+logregtab = table(testset$change, as.numeric(predict(logregout,
+   newdata=testset,type="response") > 0.5))
+classtreetab = table(testset$change, predict(classtreeout,
+   newdata=testset,type="class"))
+rftab = table(testset$change, predict(rfout, newdata=testset))
+
+#-------------------------------------------------------------------
+# These are the R commands for Clustering
+
+
+stockmat = read.table(
+  "http://www.stat.cmu.edu/~cschafer/MSCF/stockdata.txt",header=T)
+
+
+# Determine the full name for each stock
+
+firmdata = read.csv(
+  "http://www.stat.cmu.edu/~cschafer/MSCF/AllFirms.csv",header=F)
+
+fullname = rep("a",ncol(stockmat))
+
+for(i in 1:ncol(stockmat))
+{
+  holdout = firmdata[which(firmdata[,1]==names(stockmat)[i]),2]
+  if(length(holdout)==0)
+  {
+     fullname[i] = as.character(names(stockmat)[i])  
+  } else
+  {
+     fullname[i] = as.character(holdout)
+   }
+}
+
+
+
+#-------------------------------------------------------------------
+# Run K-means on the data
+
+set.seed(0)
+kmout = kmeans(t(stockmat),centers=6,nstart=10)
+
+
+# Plot the results
+
+for(k in 1:6)
+{
+  if(k %% 3 == 1)
+  {
+    postscript(file=paste("kmeans",floor(k/3+1),".eps",sep=""),
+               horiz=F,width=6,height=9)
+    par(mfrow=c(3,1))
+  }
+  plot(1:42,kmout$centers[k,],xlim=c(1,42),
+       ylim=c(min(stockmat),max(stockmat)),type="l",col=2,lwd=2,
+       xlab="Day",ylab="Adjusted Price (Scaled)",cex.lab=1.3,
+       cex.axis=1.3,lty=2)
+  
+  for(i in 1:length(SymbolList$V1))
+  {
+    if(kmout$cluster[i]==k)
+    {
+      points(1:42,stockmat[,i],type="l",col=rgb(0.3,0.3,0.3))
+    }
+  }
+  
+  points(1:42,kmout$centers[k,],type="l",col=2,lwd=2,lty=2)
+  if(k %% 3 == 0) 
+  {
+    dev.off()
+  }
+}
+
+
+
+
+#-------------------------------------------------------------------
+# Hierarchical Clustering
+
+# Simple Dendrogram Example
+
+set.seed(0)
+x = rnorm(10, c(0,0,0,0,0,5,5,5,7,7), sd = 0.5)
+
+postscript(file="simpdend.eps",width=6,height=6,horiz=F)
+plot(hclust(dist(x)),xlab="",sub="")
+dev.off()
+
+
+# Cluster our stock data
+
+hcout = hclust(dist(t(stockmat)), method="complete")
+
+postscript(file="stockdend.eps",width=8,height=6,horiz=T)
+plot(hcout, labels=fullname, cex=0.45, sub="", xlab="")
+dev.off()
+
